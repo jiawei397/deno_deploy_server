@@ -5,15 +5,10 @@ upgrade_base_dir: /root/nas/workspaces/deployment
 end_msg: "Task successfully end"
 log:
   appenders:
-    console:
-      type: console
     dateFile:
-      type: dateFile
       filename: logs/deploy
-      alwaysIncludePattern: true
-      daysToKeep: 10,
+      daysToKeep: 10
       pattern: yyyy-MM-dd.log
-      encoding: utf-8
   categories:
     default:
       appenders:
