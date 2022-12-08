@@ -13,10 +13,8 @@ app.use(anyExceptionFilter({
 }));
 
 app.get("/healthz", (ctx) => {
-  ctx.response.body = "ok";
+  ctx.response.status = 204;
 });
-
-app.setGlobalPrefix(globals.apiPrefix);
 
 app.use(app.routes());
 

@@ -2,12 +2,12 @@ import { DateFileLogConfig } from "date_file_log";
 
 // 添加interface或type
 export type Config = {
-  apiPrefix: string;
-  db: string;
   port: number;
-  staticPath?: string; //静态资源路径
+  kubectl_dir?: string;
+  guard_token: string;
+  upgrade_base_dir: string;
+  end_msg: string;
   log: DateFileLogConfig; //log4js配置
-  ssoApi?: string; // sso的api地址，最近一个字符得是/
 };
 
 export type Scripts = {
