@@ -1,0 +1,16 @@
+port: 3000
+apiPrefix: api
+db: 'mongodb://admin:123456@192.168.21.125:30711/test?authSource=admin'
+ssoApi: "https://sso.3dlink.cn/api/"
+log:
+  appenders:
+    dateFile:
+      filename: logs/deno
+      daysToKeep: 10
+      pattern: yyyy-MM-dd.log
+  categories:
+    default:
+      appenders:
+        - dateFile
+        - console
+      level: DEBUG

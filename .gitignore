@@ -1,0 +1,9 @@
+.idea
+.DS_Store
+*.js
+*.txt
+*.css
+*.map
+.deno_plugins
+/logs/
+import_map_proxy.json
