@@ -10,113 +10,160 @@ import { ReadableStreamResult } from "./tools/utils.ts";
 
 const ignore_re = /(redis|mongo|postgres|mysql|mariadb|elasticsearch)/;
 const SEPARATOR_LINE = `------------------------------------------------`;
+enum DeployType {
+  Deployment = "deployment",
+  Config = "config",
+  Service = "service",
+  Ingress = "ing",
+  Job = "job",
+}
 
 @Injectable()
 export class AppService {
   constructor(private readonly logger: Logger) {}
 
   async upgrade(params: UpgradeDto, res: ReadableStreamResult) {
-    const yaml_file_path = await this.get_yaml_file_path(params);
-    await this.deploy_with_yaml(yaml_file_path, params, res);
+    const { file_type, file_path } = await this.get_yaml_file_path(params);
+    await this.deploy_with_yaml(file_path, file_type, params, res);
+  }
+
+  private read_file(file_path: string): Promise<string | null> {
+    return fs.readFile(file_path, "utf8").catch(() => null);
+  }
+
+  private async get_yaml_content(
+    upgrade_base_dir: string,
+    dirname: string,
+  ): Promise<
+    {
+      file_path: string;
+      file_type: DeployType;
+      content: string;
+    } | null
+  > {
+    const arr = [DeployType.Ingress, DeployType.Deployment, DeployType.Job]; // TODO: 后面如果有config，再考虑
+    for (let i = 0, len = arr.length; i < len; i++) {
+      const file_path = path.join(upgrade_base_dir, dirname, `${arr[i]}.yaml`);
+      const content = await this.read_file(file_path);
+      if (content) {
+        return {
+          file_path: file_path,
+          file_type: arr[i],
+          content: content,
+        };
+      }
+    }
+    return null;
   }
 
   /**
-   * 找到需要更新的deployment文件，修改镜像版本号
+   * 找到需要更新的ing.yaml或者deployment.yaml，修改镜像版本号
    */
-  private async get_yaml_file_path(upgrade: UpgradeDto): Promise<string> {
+  private async get_yaml_file_path(upgrade: UpgradeDto): Promise<{
+    file_path: string;
+    file_type: DeployType;
+  }> {
     const { upgrade_base_dir } = globals;
     const list = await fs.readdir(path.join(upgrade_base_dir));
     for (let i = 0; i < list.length; i++) {
       const item = list[i];
       const stat = await fs.stat(path.join(upgrade_base_dir, item));
-      if (stat.isDirectory()) {
-        const file_path = path.join(upgrade_base_dir, item, "deployment.yaml");
-        let content = "";
-        try {
-          content = await fs.readFile(file_path, "utf8");
-        } catch {
-          continue;
-        }
-        const reg = new RegExp(
-          // eslint-disable-next-line no-useless-escape
-          `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:[\\w\-\.]+$`,
+      if (!stat.isDirectory()) {
+        continue;
+      }
+      const result = await this.get_yaml_content(
+        upgrade_base_dir,
+        item,
+      );
+      if (!result) {
+        continue;
+      }
+      const { content, file_path, file_type } = result;
+      const reg = new RegExp(
+        // eslint-disable-next-line no-useless-escape
+        `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:[\\w\-\.]+$`,
+        "gm",
+      );
+      const res = content.match(reg);
+      if (!res) {
+        continue;
+      }
+      const reg2 = new RegExp(
+        // eslint-disable-next-line no-useless-escape
+        `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:(\\d+)\.(\\d+)\.(\\d+)$`,
+        "gm",
+      );
+      const res2 = content.match(reg2);
+      const ug_version = upgrade.version.split(".").map((v) => Number(v));
+      if (
+        upgrade.strict_version &&
+        res2 &&
+        new RegExp(
+          `\\s+${upgrade.hostname.replace(/\./gm, "\\.")}\\s+`,
           "gm",
-        );
-        const res = content.match(reg);
-        if (!res) {
-          continue;
-        }
-        const reg2 = new RegExp(
-          // eslint-disable-next-line no-useless-escape
-          `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:(\\d+)\.(\\d+)\.(\\d+)$`,
-          "gm",
-        );
-        const res2 = content.match(reg2);
-        const ug_version = upgrade.version.split(".").map((v) => Number(v));
-        if (
-          upgrade.strict_version &&
-          res2 &&
-          new RegExp(
-            `\\s+${upgrade.hostname.replace(/\./gm, "\\.")}\\s+`,
-            "gm",
-          ).test(content)
+        ).test(content)
+      ) {
+        // 匹配了版本规则的进行校验
+        const version_arr = (res2[0].split(":").pop() as string)
+          .split(".")
+          .map((v) => Number(v));
+        if (ug_version.join(".") === version_arr.join(".")) {
+          throw new BadRequestException(
+            "Target version same with currently running version",
+          );
+        } else if (
+          upgrade.strict_version === "" ||
+          (upgrade.strict_version === "patch" &&
+            ug_version[0] === version_arr[0] &&
+            ug_version[1] === version_arr[1] &&
+            ug_version[2] > version_arr[2]) ||
+          (upgrade.strict_version === "minor" &&
+            ug_version[0] === version_arr[0] &&
+            (ug_version[1] > version_arr[1] ||
+              (ug_version[1] === version_arr[1] &&
+                ug_version[2] > version_arr[2]))) ||
+          (upgrade.strict_version === "major" &&
+            (ug_version[0] > version_arr[0] ||
+              (ug_version[0] === version_arr[0] &&
+                ug_version[1] > version_arr[1]) ||
+              (ug_version[0] === version_arr[0] &&
+                ug_version[1] === version_arr[1] &&
+                ug_version[2] > version_arr[2])))
         ) {
-          // 匹配了版本规则的进行校验
-          const version_arr = (res2[0].split(":").pop() as string)
-            .split(".")
-            .map((v) => Number(v));
-          if (ug_version.join(".") === version_arr.join(".")) {
-            throw new BadRequestException(
-              "Target version same with currently running version",
-            );
-          } else if (
-            upgrade.strict_version === "" ||
-            (upgrade.strict_version === "patch" &&
-              ug_version[0] === version_arr[0] &&
-              ug_version[1] === version_arr[1] &&
-              ug_version[2] > version_arr[2]) ||
-            (upgrade.strict_version === "minor" &&
-              ug_version[0] === version_arr[0] &&
-              (ug_version[1] > version_arr[1] ||
-                (ug_version[1] === version_arr[1] &&
-                  ug_version[2] > version_arr[2]))) ||
-            (upgrade.strict_version === "major" &&
-              (ug_version[0] > version_arr[0] ||
-                (ug_version[0] === version_arr[0] &&
-                  ug_version[1] > version_arr[1]) ||
-                (ug_version[0] === version_arr[0] &&
-                  ug_version[1] === version_arr[1] &&
-                  ug_version[2] > version_arr[2])))
-          ) {
-            await fs.writeFile(
-              file_path,
-              content.replace(
-                reg2,
-                `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
-              ),
-              "utf8",
-            );
-            return file_path;
-          } else {
-            throw new BadRequestException(
-              `Strict version skip, from ${
-                version_arr.join(
-                  ".",
-                )
-              } to ${ug_version.join(".")}`,
-            );
-          }
-        } else {
           await fs.writeFile(
             file_path,
             content.replace(
-              reg,
+              reg2,
               `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
             ),
             "utf8",
           );
-          return file_path;
+          return {
+            file_type,
+            file_path,
+          };
+        } else {
+          throw new BadRequestException(
+            `Strict version skip, from ${
+              version_arr.join(
+                ".",
+              )
+            } to ${ug_version.join(".")}`,
+          );
         }
+      } else {
+        await fs.writeFile(
+          file_path,
+          content.replace(
+            reg,
+            `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
+          ),
+          "utf8",
+        );
+        return {
+          file_type,
+          file_path,
+        };
       }
     }
 
@@ -129,9 +176,18 @@ export class AppService {
 
   private async deploy_with_yaml(
     yaml_file: string,
+    file_type: DeployType,
     params: UpgradeDto,
     res: ReadableStreamResult,
   ) {
+    if (
+      file_type !== DeployType.Deployment &&
+      file_type !== DeployType.Ingress
+    ) {
+      res.end(globals.end_msg);
+      this.logger.info(`[${yaml_file}] will not deploy.`);
+      return true;
+    }
     const apply_output = await this.exec(
       `${this.kubectlBin} apply -f ${yaml_file}`,
     );

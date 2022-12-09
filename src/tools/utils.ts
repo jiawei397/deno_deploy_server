@@ -13,7 +13,7 @@ export async function readYaml<T>(path: string): Promise<T> {
 export interface ReadableStreamResult {
   body: ReadableStream;
   write(message: string): void;
-  end(): void;
+  end(message?: string): void;
 }
 
 const te = new TextEncoder();
@@ -29,7 +29,10 @@ export function getReadableStream(): ReadableStreamResult {
     write(message: string) {
       controller.enqueue(te.encode(message));
     },
-    end() {
+    end(message?: string) {
+      if (message) {
+        controller.enqueue(te.encode(message));
+      }
       controller.close();
     },
   };
