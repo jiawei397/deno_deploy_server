@@ -1,4 +1,4 @@
-import { Injectable } from "oak_nest";
+import { Injectable, type ReadableStreamResult } from "oak_nest";
 import { UpgradeDto } from "./app.dto.ts";
 import globals from "./globals.ts";
 import * as fs from "std/node/fs/promises.ts";
@@ -6,7 +6,6 @@ import * as path from "std/node/path/mod.ts";
 import { exec } from "std/node/child_process.ts";
 import { BadRequestException } from "oak_exception";
 import { Logger } from "./tools/log.ts";
-import { ReadableStreamResult } from "./tools/utils.ts";
 
 const ignore_re = /(redis|mongo|postgres|mysql|mariadb|elasticsearch)/;
 const SEPARATOR_LINE = `------------------------------------------------`;
