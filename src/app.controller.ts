@@ -5,7 +5,7 @@ import { AuthGuard } from "./guards/auth.guard.ts";
 import { UpgradeDto } from "./app.dto.ts";
 import { Logger } from "./tools/log.ts";
 import { AppService } from "./app.service.ts";
-import { StringWriter } from "std/io/mod.ts";
+import { getReadableStream } from "./tools/utils.ts";
 
 @Controller("")
 export class AppController {
@@ -28,10 +28,10 @@ export class AppController {
       this.logger.debug(
         `upgrading start and params is ${JSON.stringify(params)}`,
       );
-      const writer = new StringWriter("");
-      await this.appService.upgrade(params, writer);
+      const rs = getReadableStream();
+      await this.appService.upgrade(params, rs);
       this.logger.info(`Upgrade finished`);
-      return writer.toString();
+      return rs.body;
     } catch (error) {
       this.logger.error(error);
       return "error: " + error;

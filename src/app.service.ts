@@ -6,19 +6,18 @@ import * as path from "std/node/path/mod.ts";
 import { exec } from "std/node/child_process.ts";
 import { BadRequestException } from "oak_exception";
 import { Logger } from "./tools/log.ts";
-import { StringWriter } from "std/io/mod.ts";
+import { ReadableStreamResult } from "./tools/utils.ts";
 
 const ignore_re = /(redis|mongo|postgres|mysql|mariadb|elasticsearch)/;
 const SEPARATOR_LINE = `------------------------------------------------`;
-const te = new TextEncoder();
 
 @Injectable()
 export class AppService {
   constructor(private readonly logger: Logger) {}
 
-  async upgrade(params: UpgradeDto, writer: StringWriter) {
+  async upgrade(params: UpgradeDto, res: ReadableStreamResult) {
     const yaml_file_path = await this.get_yaml_file_path(params);
-    await this.deploy_with_yaml(yaml_file_path, params, writer);
+    await this.deploy_with_yaml(yaml_file_path, params, res);
   }
 
   /**
@@ -35,7 +34,7 @@ export class AppService {
         let content = "";
         try {
           content = await fs.readFile(file_path, "utf8");
-        } catch (err) {
+        } catch {
           continue;
         }
         const reg = new RegExp(
@@ -131,7 +130,7 @@ export class AppService {
   private async deploy_with_yaml(
     yaml_file: string,
     params: UpgradeDto,
-    writer: StringWriter,
+    res: ReadableStreamResult,
   ) {
     const apply_output = await this.exec(
       `${this.kubectlBin} apply -f ${yaml_file}`,
@@ -142,7 +141,7 @@ export class AppService {
     if (!namespace_match || namespace_match.length < 2) {
       const msg = `${yaml_file} applied result not matched namespace`;
       this.logger.error(msg);
-      writer.write(te.encode(msg));
+      res.write(msg);
       return;
     }
     namespace = namespace_match[1];
@@ -188,7 +187,7 @@ export class AppService {
           const msg =
             `${yaml_file} applied result not matched deployment.apps.unchanged or cronjob.batch.unchanged`;
           this.logger.error(msg);
-          writer.write(te.encode(msg));
+          res.write(msg);
           return;
         }
         for (let i = 0; i < appNames.length; i++) {
@@ -209,7 +208,7 @@ export class AppService {
         if (!appName) {
           const msg = `Not found Image by describe`;
           this.logger.error(msg);
-          writer.write(te.encode(msg));
+          res.write(msg);
           return;
         }
         await this.exec(
@@ -219,36 +218,34 @@ export class AppService {
         const msg =
           `${yaml_file} applied result not matched deployment.apps.configured or cronjob.batch.configured`;
         this.logger.error(msg);
-        writer.write(te.encode(msg));
+        res.write(msg);
         return;
       }
     }
     // 等待2分钟
     const time = 1000 * 60 * (params.timeout || 2);
-    writer.write(
-      te.encode(
-        `Applied deployment ok, and will check the pods status within 2 minutes.\n`,
-      ),
+    res.write(
+      `Applied deployment ok, and will check the pods status within 2 minutes.\n`,
     );
     const bool = await this.checkIsSuccess(namespace, appName, time);
     if (bool) {
-      writer.write(te.encode(globals.end_msg));
+      res.write(globals.end_msg);
       this.logger.info(`pod ${namespace} ${appName} successfully`);
       return true;
     }
-    writer.write(te.encode(SEPARATOR_LINE + "\n"));
+    res.write(SEPARATOR_LINE + "\n");
     this.logger.info(SEPARATOR_LINE);
     const msg =
       `pod ${namespace} ${appName} failed to start, the error logs will be shown: `;
     this.logger.warn(msg);
-    writer.write(te.encode(msg + "\n"));
+    res.write(msg + "\n");
     const podName = await this.findErrorPod(namespace, appName);
     const errorLogs = await this.logPod(namespace, podName, time);
-    writer.write(te.encode(errorLogs + "\n"));
-    writer.write(te.encode(SEPARATOR_LINE + "\n"));
+    res.write(errorLogs + "\n");
+    res.write(SEPARATOR_LINE + "\n");
     this.logger.info(SEPARATOR_LINE);
     this.logger.warn(`pod ${namespace} ${appName} will try to rollout`);
-    await this.rollout(namespace, appName, writer);
+    await this.rollout(namespace, appName, res);
     return true;
   }
 
@@ -271,7 +268,7 @@ export class AppService {
         time,
       );
       return output.includes("successfully");
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -313,7 +310,7 @@ export class AppService {
   private async rollout(
     namespace: string,
     appName: string,
-    writer: StringWriter,
+    res: ReadableStreamResult,
   ) {
     //进行版本回退
     //取上一个版本号准备回退
@@ -328,10 +325,8 @@ export class AppService {
     command =
       `${this.kubectlBin} rollout history -n ${namespace} ${appName} --revision=${rollout_history_output.trim()} |grep Image |  awk '{print $2}'`;
     const dockerVersion = await this.exec(command);
-    writer.write(
-      te.encode(
-        `The deployment failed, then will try to rollback version: ${dockerVersion}.\n`,
-      ),
+    res.write(
+      `The deployment failed, then will try to rollback version: ${dockerVersion}.\n`,
     );
     // console.log(
     //   "deployment failed will rollback version:",
@@ -343,10 +338,8 @@ export class AppService {
     command =
       `${this.kubectlBin} rollout undo -n ${namespace} ${appName} --to-revision=${rollout_history_output.trim()}`;
     await this.exec(command);
-    writer.write(
-      te.encode(
-        `Rollback ok. You may check your deployment by the error message above.\n`,
-      ),
+    res.write(
+      `Rollback ok. You may check your deployment by the error message above.\n`,
     );
   }
 
