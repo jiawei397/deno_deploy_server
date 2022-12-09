@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, UseGuards } from "oak_nest";
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Res,
+  Response,
+  UseGuards,
+} from "oak_nest";
 import { Scripts } from "./type.ts";
 import { parse } from "jsonc";
 import { AuthGuard } from "./guards/auth.guard.ts";
@@ -23,15 +31,15 @@ export class AppController {
 
   @Post("upgrade-k8s-service")
   @UseGuards(AuthGuard)
-  async upgrade(@Body() params: UpgradeDto) {
+  async upgrade(@Body() params: UpgradeDto, @Res() response: Response) {
     try {
       this.logger.debug(
         `upgrading start and params is ${JSON.stringify(params)}`,
       );
       const rs = getReadableStream();
+      response.body = rs.body;
       await this.appService.upgrade(params, rs);
       this.logger.info(`Upgrade finished`);
-      return rs.body;
     } catch (error) {
       this.logger.error(error);
       return "error: " + error;

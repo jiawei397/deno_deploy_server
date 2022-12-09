@@ -285,7 +285,7 @@ export class AppService {
     );
     const bool = await this.checkIsSuccess(namespace, appName, time);
     if (bool) {
-      res.write(globals.end_msg);
+      res.end(globals.end_msg);
       this.logger.info(`pod ${namespace} ${appName} successfully`);
       return true;
     }
