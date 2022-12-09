@@ -6,6 +6,7 @@ import * as path from "std/node/path/mod.ts";
 import { exec } from "std/node/child_process.ts";
 import { BadRequestException } from "oak_exception";
 import { Logger } from "./tools/log.ts";
+import { readYaml } from "./tools/utils.ts";
 
 const ignore_re = /(redis|mongo|postgres|mysql|mariadb|elasticsearch)/;
 const SEPARATOR_LINE = `------------------------------------------------`;
@@ -15,6 +16,7 @@ enum DeployType {
   Service = "service",
   Ingress = "ingress",
   Job = "job",
+  Namespace = "namespace",
 }
 
 @Injectable()
@@ -28,6 +30,19 @@ export class AppService {
 
   private read_file(file_path: string): Promise<string | null> {
     return fs.readFile(file_path, "utf8").catch(() => null);
+  }
+
+  private async get_namespace(dir_path: string): Promise<string | null> {
+    try {
+      const data = await readYaml<{
+        metadata: {
+          name: string;
+        };
+      }>(dir_path + `/${DeployType.Namespace}.yaml`);
+      return data.metadata?.name;
+    } catch {
+      return null;
+    }
   }
 
   private async get_yaml_content(
@@ -191,15 +206,23 @@ export class AppService {
       `${this.kubectlBin} apply -f ${yaml_file}`,
     );
 
-    let namespace = "";
+    let namespace;
     const namespace_match = apply_output.match(/namespace\/([\w-]+)/m);
     if (!namespace_match || namespace_match.length < 2) {
-      const msg = `${yaml_file} applied result not matched namespace`;
-      this.logger.error(msg);
-      res.write(msg);
-      return;
+      const arr = yaml_file.split("/");
+      arr.pop();
+      namespace = await this.get_namespace(arr.join("/"));
+      if (!namespace) {
+        const msg = `${yaml_file} applied result not matched namespace`;
+        this.logger.error(msg);
+        res.write(msg);
+        return;
+      } else {
+        this.logger.info(`find namespace [${namespace}] from namespace.yaml`);
+      }
+    } else {
+      namespace = namespace_match[1];
     }
-    namespace = namespace_match[1];
 
     //这里应该不要for循环,一次cicd只会更新一个deployment
     const line = apply_output.trim();
