@@ -48,26 +48,25 @@ export class AppService {
   private async get_yaml_content(
     upgrade_base_dir: string,
     dirname: string,
-  ): Promise<
-    {
+  ) {
+    const arr = [DeployType.Ingress, DeployType.Deployment, DeployType.Job]; // TODO: 后面如果有config，再考虑
+    const result: {
       file_path: string;
       file_type: DeployType;
       content: string;
-    } | null
-  > {
-    const arr = [DeployType.Ingress, DeployType.Deployment, DeployType.Job]; // TODO: 后面如果有config，再考虑
-    for (let i = 0, len = arr.length; i < len; i++) {
-      const file_path = path.join(upgrade_base_dir, dirname, `${arr[i]}.yaml`);
+    }[] = [];
+    await Promise.all(arr.map(async (name) => {
+      const file_path = path.join(upgrade_base_dir, dirname, `${name}.yaml`);
       const content = await this.read_file(file_path);
       if (content) {
-        return {
-          file_path: file_path,
-          file_type: arr[i],
-          content: content,
-        };
+        result.push({
+          file_path,
+          file_type: name,
+          content,
+        });
       }
-    }
-    return null;
+    }));
+    return result;
   }
 
   /**
@@ -80,28 +79,28 @@ export class AppService {
     const { upgrade_base_dir } = globals;
     const list = await fs.readdir(path.join(upgrade_base_dir));
     for (let i = 0; i < list.length; i++) {
-      const item = list[i];
-      const stat = await fs.stat(path.join(upgrade_base_dir, item));
+      const dir = list[i];
+      const stat = await fs.stat(path.join(upgrade_base_dir, dir));
       if (!stat.isDirectory()) {
         continue;
       }
       const result = await this.get_yaml_content(
         upgrade_base_dir,
-        item,
+        dir,
       );
-      if (!result) {
+      if (result.length === 0) {
         continue;
       }
-      const { content, file_path, file_type } = result;
       const reg = new RegExp(
         // eslint-disable-next-line no-useless-escape
         `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:[\\w\-\.]+$`,
         "gm",
       );
-      const res = content.match(reg);
-      if (!res) {
+      const file = result.find(({ content }) => reg.test(content));
+      if (!file) {
         continue;
       }
+      const { content, file_path, file_type } = file;
       const reg2 = new RegExp(
         // eslint-disable-next-line no-useless-escape
         `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:(\\d+)\.(\\d+)\.(\\d+)$`,
