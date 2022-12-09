@@ -14,6 +14,7 @@ import { AuthGuard } from "./guards/auth.guard.ts";
 import { UpgradeDto } from "./app.dto.ts";
 import { Logger } from "./tools/log.ts";
 import { AppService } from "./app.service.ts";
+import globals from "./globals.ts";
 
 @Controller("")
 export class AppController {
@@ -32,16 +33,22 @@ export class AppController {
   @Post("upgrade-k8s-service")
   @UseGuards(AuthGuard)
   async upgrade(@Body() params: UpgradeDto, @Res() response: Response) {
+    const rs = getReadableStream();
+    this.logger.debug(
+      `upgrading start and params is ${JSON.stringify(params)}`,
+    );
+    response.body = rs.body;
     try {
-      this.logger.debug(
-        `upgrading start and params is ${JSON.stringify(params)}`,
-      );
-      const rs = getReadableStream();
-      response.body = rs.body;
-      await this.appService.upgrade(params, rs);
+      const success = await this.appService.upgrade(params, rs);
+      if (success) {
+        rs.end(globals.end_msg);
+      } else {
+        rs.end();
+      }
       this.logger.info(`Upgrade finished`);
     } catch (error) {
       this.logger.error(error);
+      rs.end(error + "");
       return "error: " + error;
     }
   }

@@ -25,7 +25,7 @@ export class AppService {
 
   async upgrade(params: UpgradeDto, res: ReadableStreamResult) {
     const { file_type, file_path } = await this.get_yaml_file_path(params);
-    await this.deploy_with_yaml(file_path, file_type, params, res);
+    return this.deploy_with_yaml(file_path, file_type, params, res);
   }
 
   private read_file(file_path: string): Promise<string | null> {
@@ -193,12 +193,11 @@ export class AppService {
     file_type: DeployType,
     params: UpgradeDto,
     res: ReadableStreamResult,
-  ) {
+  ): Promise<boolean> {
     if (
       file_type !== DeployType.Deployment &&
       file_type !== DeployType.Ingress
     ) {
-      res.end(globals.end_msg);
       this.logger.info(`[${yaml_file}] will not deploy.`);
       return true;
     }
@@ -216,7 +215,7 @@ export class AppService {
         const msg = `${yaml_file} applied result not matched namespace`;
         this.logger.error(msg);
         res.write(msg);
-        return;
+        return false;
       } else {
         this.logger.info(`find namespace [${namespace}] from namespace.yaml`);
       }
@@ -266,7 +265,7 @@ export class AppService {
             `${yaml_file} applied result not matched deployment.apps.unchanged or cronjob.batch.unchanged`;
           this.logger.error(msg);
           res.write(msg);
-          return;
+          return false;
         }
         for (let i = 0; i < appNames.length; i++) {
           const dockerUrl = await this.exec(
@@ -287,7 +286,7 @@ export class AppService {
           const msg = `Not found Image by describe`;
           this.logger.error(msg);
           res.write(msg);
-          return;
+          return false;
         }
         await this.exec(
           `${this.kubectlBin} rollout restart -n ${namespace} ${appName}`,
@@ -297,7 +296,7 @@ export class AppService {
           `${yaml_file} applied result not matched deployment.apps.configured or cronjob.batch.configured`;
         this.logger.error(msg);
         res.write(msg);
-        return;
+        return false;
       }
     }
     // 等待2分钟
@@ -307,7 +306,6 @@ export class AppService {
     );
     const bool = await this.checkIsSuccess(namespace, appName, time);
     if (bool) {
-      res.end(globals.end_msg);
       this.logger.info(`pod ${namespace} ${appName} successfully`);
       return true;
     }
@@ -324,7 +322,7 @@ export class AppService {
     this.logger.info(SEPARATOR_LINE);
     this.logger.warn(`pod ${namespace} ${appName} will try to rollout`);
     await this.rollout(namespace, appName, res);
-    return true;
+    return false;
   }
 
   private async checkIsSuccess(
