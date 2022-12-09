@@ -14,7 +14,7 @@ enum DeployType {
   Deployment = "deployment",
   Config = "config",
   Service = "service",
-  Ingress = "ing",
+  Ingress = "ingress",
   Job = "job",
 }
 
