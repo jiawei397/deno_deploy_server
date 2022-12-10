@@ -24,8 +24,25 @@ export class AppService {
   constructor(private readonly logger: Logger) {}
 
   async upgrade(params: UpgradeDto, res: ReadableStreamResult) {
-    const { file_type, file_path } = await this.get_yaml_file_path(params);
-    return this.deploy_with_yaml(file_path, file_type, params, res);
+    try {
+      const { file_type, file_path } = await this.get_yaml_file_path(params);
+      const success = await this.deploy_with_yaml(
+        file_path,
+        file_type,
+        params,
+        res,
+      );
+      if (success) {
+        res.end(globals.end_msg);
+      } else {
+        res.end();
+      }
+      this.logger.info(`Upgrade finished`);
+    } catch (error) {
+      this.logger.error(error);
+      res.end(error + "");
+      return "error: " + error;
+    }
   }
 
   private read_file(file_path: string): Promise<string | null> {
