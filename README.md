@@ -1,4 +1,4 @@
-# deno_deploy
+# deno_deploy_server
 
 [![deno version](https://img.shields.io/badge/deno-^1.26.1-green?logo=deno)](https://github.com/denoland/deno)
 
@@ -39,7 +39,6 @@ deno fmt
 ```
 
 建议开发时，开启`vscode`自动格式化。
-
 
 ## 生成git日志文件
 
