@@ -11,6 +11,7 @@
     "dev": "deno task map && deno task start:dev",
     "start": "deno task map && deno run --allow-net --allow-env --allow-write --allow-read --allow-run --importmap import_map_proxy.json --unstable mod.ts",
     "start:dev": "deno run --allow-net --allow-env --allow-write --allow-read --allow-run --importmap import_map_proxy.json --unstable --watch mod.ts",
+    "start:prod": "deno run --allow-net --allow-env --allow-write --allow-read --allow-run --config deno.jsonc --importmap https://deno-mirror.uino.cn/https/deno.land/x/deno_deploy_server@v1.0.0/import_map_proxy.json --unstable  https://deno-mirror.uino.cn/https/deno.land/x/deno_deploy_server@v1.0.0/mod.ts",
     "map": "deno run --allow-read --allow-write https://deno-mirror.uino.cn/https/deno.land/x/deno_proxy@v0.0.3/cli/mod.ts --baseUrl https://deno-mirror.uino.cn --oldPath import_map.json --newPath import_map_proxy.json",
     "cache": "deno cache --import-map import_map_proxy.json --lock lock.json --unstable --lock-write mod.ts",
     "test": "deno test --allow-net --allow-env --allow-write --allow-read --import-map import_map_proxy.json --unstable",
