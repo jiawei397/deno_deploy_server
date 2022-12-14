@@ -91,6 +91,11 @@ export class AppService {
   private async get_yaml_file_path(upgrade: UpgradeDto): Promise<FileOptions> {
     const { upgrade_base_dir } = globals;
     const list = await fs.readdir(path.join(upgrade_base_dir));
+    const reg = new RegExp(
+      // eslint-disable-next-line no-useless-escape
+      `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:([\\w\-\.]+)$`,
+      "gm",
+    );
     for (let i = 0; i < list.length; i++) {
       const dir = list[i];
       const stat = await fs.stat(path.join(upgrade_base_dir, dir));
@@ -104,12 +109,8 @@ export class AppService {
       if (result.length === 0) {
         continue;
       }
-      const reg = new RegExp(
-        // eslint-disable-next-line no-useless-escape
-        `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:([\\w\-\.]+)$`,
-        "gm",
-      );
-      const file = result.find(({ content }) => reg.test(content));
+
+      const file = result.find(({ content }) => content.match(reg)); // 如果这里不用match，而是用test，则下面matchAll会失败
       if (!file) {
         continue;
       }
@@ -121,10 +122,10 @@ export class AppService {
         break;
       }
       if (!version) {
+        this.logger.warn("not find version");
         continue;
       }
       const res2 = version.match(/(\d+)\.(\d+)\.(\d+)/);
-      const ug_version = upgrade.version.split(".").map((v) => Number(v));
       if (
         upgrade.strict_version &&
         res2 &&
@@ -133,6 +134,7 @@ export class AppService {
           "gm",
         ).test(content)
       ) {
+        const ug_version = upgrade.version.split(".").map((v) => Number(v));
         // 匹配了版本规则的进行校验
         const version_arr = (res2[0].split(":").pop() as string)
           .split(".")
