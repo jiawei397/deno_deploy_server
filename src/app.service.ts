@@ -19,16 +19,22 @@ enum DeployType {
   Namespace = "namespace",
 }
 
+interface FileOptions {
+  file_path: string;
+  file_type: DeployType;
+  content: string;
+  unchanged?: boolean;
+}
+
 @Injectable()
 export class AppService {
   constructor(private readonly logger: Logger) {}
 
   async upgrade(params: UpgradeDto, res: ReadableStreamResult) {
     try {
-      const { file_type, file_path } = await this.get_yaml_file_path(params);
+      const fileOptions = await this.get_yaml_file_path(params);
       const success = await this.deploy_with_yaml(
-        file_path,
-        file_type,
+        fileOptions,
         params,
         res,
       );
@@ -62,16 +68,9 @@ export class AppService {
     }
   }
 
-  private async get_yaml_content(
-    upgrade_base_dir: string,
-    dirname: string,
-  ) {
+  private async get_yaml_content(upgrade_base_dir: string, dirname: string) {
     const arr = [DeployType.Ingress, DeployType.Deployment, DeployType.Job]; // TODO: 后面如果有config，再考虑
-    const result: {
-      file_path: string;
-      file_type: DeployType;
-      content: string;
-    }[] = [];
+    const result: FileOptions[] = [];
     await Promise.all(arr.map(async (name) => {
       const file_path = path.join(upgrade_base_dir, dirname, `${name}.yaml`);
       const content = await this.read_file(file_path);
@@ -89,10 +88,7 @@ export class AppService {
   /**
    * 找到需要更新的ing.yaml或者deployment.yaml，修改镜像版本号
    */
-  private async get_yaml_file_path(upgrade: UpgradeDto): Promise<{
-    file_path: string;
-    file_type: DeployType;
-  }> {
+  private async get_yaml_file_path(upgrade: UpgradeDto): Promise<FileOptions> {
     const { upgrade_base_dir } = globals;
     const list = await fs.readdir(path.join(upgrade_base_dir));
     for (let i = 0; i < list.length; i++) {
@@ -110,7 +106,7 @@ export class AppService {
       }
       const reg = new RegExp(
         // eslint-disable-next-line no-useless-escape
-        `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:[\\w\-\.]+$`,
+        `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:([\\w\-\.]+)$`,
         "gm",
       );
       const file = result.find(({ content }) => reg.test(content));
@@ -118,12 +114,16 @@ export class AppService {
         continue;
       }
       const { content, file_path, file_type } = file;
-      const reg2 = new RegExp(
-        // eslint-disable-next-line no-useless-escape
-        `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:(\\d+)\.(\\d+)\.(\\d+)$`,
-        "gm",
-      );
-      const res2 = content.match(reg2);
+      let version: string | undefined;
+      const matched = content.matchAll(reg);
+      for (const arr of matched) {
+        version = arr[1];
+        break;
+      }
+      if (!version) {
+        continue;
+      }
+      const res2 = version.match(/(\d+)\.(\d+)\.(\d+)/);
       const ug_version = upgrade.version.split(".").map((v) => Number(v));
       if (
         upgrade.strict_version &&
@@ -163,7 +163,7 @@ export class AppService {
           await fs.writeFile(
             file_path,
             content.replace(
-              reg2,
+              reg,
               `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
             ),
             "utf8",
@@ -171,6 +171,8 @@ export class AppService {
           return {
             file_type,
             file_path,
+            content,
+            unchanged: upgrade.version === version,
           };
         } else {
           throw new BadRequestException(
@@ -193,6 +195,8 @@ export class AppService {
         return {
           file_type,
           file_path,
+          content,
+          unchanged: upgrade.version === version,
         };
       }
     }
@@ -205,30 +209,30 @@ export class AppService {
   }
 
   private async deploy_with_yaml(
-    yaml_file: string,
-    file_type: DeployType,
+    fileOptions: FileOptions,
     params: UpgradeDto,
     res: ReadableStreamResult,
   ): Promise<boolean> {
+    const { file_path, file_type, unchanged } = fileOptions;
     if (
       file_type !== DeployType.Deployment &&
       file_type !== DeployType.Ingress
     ) {
-      this.logger.info(`[${yaml_file}] will not deploy.`);
+      this.logger.info(`[${file_path}] will not deploy.`);
       return true;
     }
     const apply_output = await this.exec(
-      `${this.kubectlBin} apply -f ${yaml_file}`,
+      `${this.kubectlBin} apply -f ${file_path}`,
     );
 
     let namespace;
     const namespace_match = apply_output.match(/namespace\/([\w-]+)/m);
     if (!namespace_match || namespace_match.length < 2) {
-      const arr = yaml_file.split("/");
+      const arr = file_path.split("/");
       arr.pop();
       namespace = await this.get_namespace(arr.join("/"));
       if (!namespace) {
-        const msg = `${yaml_file} applied result not matched namespace`;
+        const msg = `${file_path} applied result not matched namespace`;
         this.logger.error(msg);
         res.write(msg);
         return false;
@@ -263,6 +267,7 @@ export class AppService {
     if (matched && matched.length === 5 && !ignore_re.test(matched[2])) {
       appName = matched[1];
     }
+
     if (!appName) {
       // 未匹配到configured，也就是找不到有变化的配置
       if (params.is_local) {
@@ -278,7 +283,7 @@ export class AppService {
         });
         if (appNames.length === 0) {
           const msg =
-            `${yaml_file} applied result not matched deployment.apps.unchanged or cronjob.batch.unchanged`;
+            `${file_path} applied result not matched deployment.apps.unchanged or cronjob.batch.unchanged`;
           this.logger.error(msg);
           res.write(msg);
           return false;
@@ -309,11 +314,15 @@ export class AppService {
         );
       } else {
         const msg =
-          `${yaml_file} applied result not matched deployment.apps.configured or cronjob.batch.configured`;
+          `${file_path} applied result not matched deployment.apps.configured or cronjob.batch.configured`;
         this.logger.error(msg);
         res.write(msg);
         return false;
       }
+    } else if (unchanged && params.is_local) { // local环境在这种情况下强制重启
+      await this.exec(
+        `${this.kubectlBin} rollout restart -n ${namespace} ${appName}`,
+      );
     }
     // 等待2分钟
     const time = 1000 * 60 * (params.timeout || 2);
