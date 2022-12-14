@@ -5,3 +5,4 @@
 *.map
 .deno_plugins
 /logs/
+*.js
