@@ -93,7 +93,7 @@ export class AppService {
     const list = await fs.readdir(path.join(upgrade_base_dir));
     const reg = new RegExp(
       // eslint-disable-next-line no-useless-escape
-      `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:([\\w\-\.]+)$`,
+      `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:([\\w\-\.]+)`,
       "gm",
     );
     for (let i = 0; i < list.length; i++) {
