@@ -186,14 +186,16 @@ export class AppService {
           );
         }
       } else {
-        await fs.writeFile(
-          file_path,
-          content.replace(
-            reg,
-            `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
-          ),
-          "utf8",
-        );
+        if (upgrade.version !== version) {
+          await fs.writeFile(
+            file_path,
+            content.replace(
+              reg,
+              `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
+            ),
+            "utf8",
+          );
+        }
         return {
           file_type,
           file_path,
