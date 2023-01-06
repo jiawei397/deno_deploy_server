@@ -218,16 +218,16 @@ export class AppService {
     res: ReadableStreamResult,
   ): Promise<boolean> {
     const { file_path, file_type, unchanged } = fileOptions;
+    const apply_output = await this.exec(
+      `${this.kubectlBin} apply -f ${file_path}`,
+    );
     if (
       file_type !== DeployType.Deployment &&
       file_type !== DeployType.Ingress
     ) {
-      this.logger.info(`[${file_path}] will not deploy.`);
+      this.logger.info(`[${file_path}] will not check success.`);
       return true;
     }
-    const apply_output = await this.exec(
-      `${this.kubectlBin} apply -f ${file_path}`,
-    );
 
     let namespace;
     const namespace_match = apply_output.match(/namespace\/([\w-]+)/m);
