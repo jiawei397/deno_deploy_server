@@ -212,15 +212,111 @@ export class AppService {
     return (globals.kubectl_dir || "") + "kubectl";
   }
 
+  /**
+   * 查找appName
+   */
+  private async find_app_name(
+    fileOptions: FileOptions,
+    params: UpgradeDto,
+    namespace: string,
+    apply_output: string,
+  ) {
+    let appName: string | undefined;
+    const findContainerByAppName = async (appName: string) => {
+      const dockerUrl = await this.exec(
+        `${this.kubectlBin} describe -n ${namespace} ${appName} |grep Image |  awk '{print $2}'`,
+      );
+      return dockerUrl.trim() ===
+        `dk.uino.cn/${params.project}/${params.repository}:${params.version}`;
+    };
+    if (params.is_local) { // 测试环境，与生产的逻辑不同的一点在于，如果镜像没有改变，需要restart，所以，对于生产环境而言，只需要判断有没有configured，没有就报错了，有的话再确认下哪个是正确的appName
+      const reg = /((deployment\.apps\/|cronjob\.batch\/)([\w-]+))\s+/;
+      const appNames: string[] = [];
+      apply_output.split("\n").forEach((line: string) => {
+        const matched = line.match(reg);
+        // [
+        //   "deployment.apps/server configured",
+        //   "deployment.apps/server",
+        //   "deployment.apps/",
+        //   "server",
+        // ]
+        if (matched && !ignore_re.test(matched[2])) {
+          appNames.push(matched[1]);
+        }
+      });
+      if (appNames.length === 0) {
+        const msg =
+          `${fileOptions.file_path} applied result not matched deployment.apps or cronjob.batch`;
+        throw new BadRequestException(msg);
+      } else {
+        for (let i = 0; i < appNames.length; i++) {
+          const find = await findContainerByAppName(appNames[i]);
+          if (find) {
+            appName = appNames[i];
+            break;
+          }
+        }
+        if (!appName) {
+          const msg = `Not found Image by describe.`;
+          throw new BadRequestException(msg);
+        }
+      }
+    } else {
+      const reg =
+        /((deployment\.apps\/|cronjob\.batch\/)([\w-]+))\s+(configured|created)/;
+      const appNames: string[] = [];
+      apply_output.split("\n").forEach((line: string) => {
+        const matched = line.match(reg);
+        // [
+        //   "deployment.apps/server configured",
+        //   "deployment.apps/server",
+        //   "deployment.apps/",
+        //   "server",
+        //   "configured" 或者 "created"
+        // ]
+        if (matched && !ignore_re.test(matched[2])) {
+          appNames.push(matched[1]);
+        }
+      });
+      if (appNames.length === 0) {
+        const msg =
+          `${fileOptions.file_path} applied result not matched deployment.apps.configured or cronjob.batch.configured`;
+        throw new BadRequestException(msg);
+      } else {
+        for (let i = 0; i < appNames.length; i++) {
+          const find = await findContainerByAppName(appNames[i]);
+          if (find) {
+            appName = appNames[i];
+            break;
+          }
+        }
+        if (!appName) { // 正常情况不可能找不到
+          const msg =
+            `Not found Image by describe, there may be something wrong.`;
+          throw new BadRequestException(msg);
+        }
+      }
+    }
+    return appName;
+  }
+
   private async deploy_with_yaml(
     fileOptions: FileOptions,
     params: UpgradeDto,
     res: ReadableStreamResult,
   ): Promise<boolean> {
-    const { file_path, file_type, unchanged } = fileOptions;
+    const { file_path, file_type } = fileOptions;
     const apply_output = await this.exec(
       `${this.kubectlBin} apply -f ${file_path}`,
     );
+    // 虽然大部分情况下输出结果应该只有一个configured，但也有例外，所以不能根据它来确定appName
+    // namespace/spacex-cert unchanged
+    // configmap/config unchanged
+    // deployment.apps/server configured
+    // service/server-svc unchanged
+    // deployment.apps/web unchanged
+    // service/web-svc unchanged
+    // ingress.networking.k8s.io/web-ing unchanged
     if (
       file_type !== DeployType.Deployment &&
       file_type !== DeployType.Ingress
@@ -248,103 +344,17 @@ export class AppService {
     }
 
     // 查找appName
-    // 虽然大部分情况下输出结果应该只有一个configured，但也有例外，所以不能根据它来确定appName
-    // namespace/spacex-cert unchanged
-    // configmap/config unchanged
-    // deployment.apps/server configured
-    // service/server-svc unchanged
-    // deployment.apps/web unchanged
-    // service/web-svc unchanged
-    // ingress.networking.k8s.io/web-ing unchanged
-
-    let appName: string | undefined;
-    const findContainerByAppName = async (appName: string) => {
-      const dockerUrl = await this.exec(
-        `${this.kubectlBin} describe -n ${namespace} ${appName} |grep Image |  awk '{print $2}'`,
-      );
-      return dockerUrl.trim() ===
-        `dk.uino.cn/${params.project}/${params.repository}:${params.version}`;
-    };
-    if (params.is_local) { // 测试环境，与生产的逻辑不同的一点在于，如果镜像没有改变，需要restart，所以，对于生产环境而言，只需要判断有没有configured，没有就报错了，有的话再确认下哪个是正确的appName
-      const reg = /((deployment\.apps\/|cronjob\.batch\/)([\w-]+))\s+/;
-      const appNames: string[] = [];
-      apply_output.split("\n").forEach((line: string) => {
-        const matched = line.match(reg);
-        // [
-        //   "deployment.apps/server configured",
-        //   "deployment.apps/server",
-        //   "deployment.apps/",
-        //   "server",
-        // ]
-        if (matched && !ignore_re.test(matched[2])) {
-          appNames.push(matched[1]);
-        }
-      });
-      if (appNames.length === 0) {
-        const msg =
-          `${file_path} applied result not matched deployment.apps or cronjob.batch`;
-        this.logger.error(msg);
-        res.write(msg);
-        return false;
-      } else {
-        for (let i = 0; i < appNames.length; i++) {
-          const find = await findContainerByAppName(appNames[i]);
-          if (find) {
-            appName = appNames[i];
-            break;
-          }
-        }
-        if (!appName) {
-          const msg = `Not found Image by describe.`;
-          this.logger.error(msg);
-          res.write(msg);
-          return false;
-        } else {
-          if (unchanged) { // 只有镜像未改变时需要restart，否则上面的apply已经可以了
-            await this.exec(
-              `${this.kubectlBin} rollout restart -n ${namespace} ${appName}`,
-            );
-          }
-        }
-      }
-    } else {
-      const reg =
-        /((deployment\.apps\/|cronjob\.batch\/)([\w-]+))\s+(configured|created)/;
-      const appNames: string[] = [];
-      apply_output.split("\n").forEach((line: string) => {
-        const matched = line.match(reg);
-        // [
-        //   "deployment.apps/server configured",
-        //   "deployment.apps/server",
-        //   "deployment.apps/",
-        //   "server",
-        //   "configured" 或者 "created"
-        // ]
-        if (matched && !ignore_re.test(matched[2])) {
-          appNames.push(matched[1]);
-        }
-      });
-      if (appNames.length === 0) {
-        const msg =
-          `${file_path} applied result not matched deployment.apps.configured or cronjob.batch.configured`;
-        this.logger.error(msg);
-        res.write(msg);
-        return false;
-      } else {
-        for (let i = 0; i < appNames.length; i++) {
-          const find = await findContainerByAppName(appNames[i]);
-          if (find) {
-            appName = appNames[i];
-            break;
-          }
-        }
-        if (!appName) { // 正常情况不可能找不到
-          const msg =
-            `Not found Image by describe, there may be something wrong.`;
-          this.logger.error(msg);
-          res.write(msg);
-          return false;
-        }
+    const appName = await this.find_app_name(
+      fileOptions,
+      params,
+      namespace,
+      apply_output,
+    );
+    if (params.is_local) {
+      if (fileOptions.unchanged) { // 只有镜像未改变时需要restart，否则上面的apply已经可以了
+        await this.exec(
+          `${this.kubectlBin} rollout restart -n ${namespace} ${appName}`,
+        );
       }
     }
 
