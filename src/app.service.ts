@@ -28,11 +28,12 @@ interface FileOptions {
 
 @Injectable()
 export class AppService {
-  constructor(private readonly logger: Logger) {}
+  constructor(private readonly logger: Logger) { }
 
   async upgrade(params: UpgradeDto, res: ReadableStreamResult) {
     try {
       const fileOptions = await this.get_yaml_file_path(params);
+      this.logger.info(`Found yaml in ${fileOptions.file_path}`);
       const success = await this.deploy_with_yaml(
         fileOptions,
         params,
@@ -178,10 +179,9 @@ export class AppService {
           };
         } else {
           throw new BadRequestException(
-            `Strict version skip, from ${
-              version_arr.join(
-                ".",
-              )
+            `Strict version skip, from ${version_arr.join(
+              ".",
+            )
             } to ${ug_version.join(".")}`,
           );
         }
@@ -359,9 +359,10 @@ export class AppService {
     }
 
     // 等待2分钟
-    const time = 1000 * 60 * (params.timeout || 2);
+    const timeoutMinutes = params.timeout || 2;
+    const time = 1000 * 60 * timeoutMinutes;
     res.write(
-      `Applied deployment ok, and will check the pods status within 2 minutes.\n`,
+      `Applied deployment ok, and will check the pods status within ${timeoutMinutes} minutes.\n`,
     );
     const bool = await this.checkIsSuccess(namespace, appName, time);
     if (bool) {
@@ -434,9 +435,8 @@ export class AppService {
     //打印近5s的非运行的pods日志
     //admin@ip-10-120-1-167:~$ kubectl logs --tail=-1 --since=5s test1-c7d77f47-m7r7l -n test
     //Error from server (BadRequest): container "test1" in pod "test1-c7d77f47-m7r7l" is waiting to start: image can't be pulled
-    const command = `${this.kubectlBin} logs --tail=-1 --since=${
-      time / 1000
-    }s ${podName} -n ${namespace}`;
+    const command = `${this.kubectlBin} logs --tail=-1 --since=${time / 1000
+      }s ${podName} -n ${namespace}`;
     return this.exec(command);
   }
   /**
