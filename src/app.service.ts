@@ -411,11 +411,16 @@ export class AppService {
 
   private async findErrorPod(namespace: string, appName: string) {
     //先找到更新的deployment的标签
-    //admin@ip-10-120-1-167:~$ kubectl describe deployment.apps/test1 -n test  |grep Labels |  awk '{print $2}'|head -n 1
+    //admin@ip-10-120-1-167:~$ kubectl describe deployment.apps/test1 -n test  |grep Labels |  awk '{if($2~"=")print $2}'  | head -n 1
     //app=test1
     let command =
-      `${this.kubectlBin} describe ${appName} -n ${namespace} | grep Labels |  awk '{print $2}'|head -n 1`;
+      `${this.kubectlBin} describe ${appName} -n ${namespace} | grep Labels |  awk '{if($2~"=")print $2}'  | head -n 1`;
     const deploy_label_output = await this.exec(command);
+    if (!deploy_label_output) {
+      throw new Error(
+        "Not find the pod label.",
+      );
+    }
 
     //找到异常的pods，或者正在启动运行的pods
     //admin@ip-10-120-1-167:~$ kubectl get pods -l app=test1 -n test |grep -v 'Running'|grep -v 'NAME' |grep -v 'Terminating'|head -n 1 |awk '{print $1}'
