@@ -2,11 +2,11 @@ import { Injectable, type ReadableStreamResult } from "oak_nest";
 import { UpgradeDto } from "./app.dto.ts";
 import globals from "./globals.ts";
 import * as fs from "std/node/fs/promises.ts";
-import * as path from "std/node/path/mod.ts";
 import { exec } from "std/node/child_process.ts";
 import { BadRequestException } from "oak_exception";
 import { Logger } from "./tools/log.ts";
 import { readYaml } from "./tools/utils.ts";
+import { walk } from "std/fs/mod.ts";
 
 const ignore_re = /(redis|mongo|postgres|mysql|mariadb|elasticsearch)/;
 const SEPARATOR_LINE = `------------------------------------------------`;
@@ -19,6 +19,20 @@ enum DeployType {
   Namespace = "namespace",
 }
 
+type FileTypeStrategy = {
+  pattern: RegExp;
+  type: DeployType;
+};
+
+const fileTypeStrategies: FileTypeStrategy[] = [
+  { pattern: /deployment\.yaml$/, type: DeployType.Deployment },
+  { pattern: /config\.yaml$/, type: DeployType.Config },
+  { pattern: /service\.yaml$/, type: DeployType.Service },
+  { pattern: /ingress\.yaml$/, type: DeployType.Ingress },
+  { pattern: /job\.yaml$/, type: DeployType.Job },
+  { pattern: /namespace\.yaml$/, type: DeployType.Namespace },
+];
+
 interface FileOptions {
   file_path: string;
   file_type: DeployType;
@@ -28,7 +42,7 @@ interface FileOptions {
 
 @Injectable()
 export class AppService {
-  constructor(private readonly logger: Logger) { }
+  constructor(private readonly logger: Logger) {}
 
   async upgrade(params: UpgradeDto, res: ReadableStreamResult) {
     try {
@@ -52,10 +66,6 @@ export class AppService {
     }
   }
 
-  private read_file(file_path: string): Promise<string | null> {
-    return fs.readFile(file_path, "utf8").catch(() => null);
-  }
-
   private async get_namespace(dir_path: string): Promise<string | null> {
     try {
       const data = await readYaml<{
@@ -69,21 +79,36 @@ export class AppService {
     }
   }
 
-  private async get_yaml_content(upgrade_base_dir: string, dirname: string) {
-    const arr = [DeployType.Ingress, DeployType.Deployment, DeployType.Job]; // TODO: 后面如果有config，再考虑
-    const result: FileOptions[] = [];
-    await Promise.all(arr.map(async (name) => {
-      const file_path = path.join(upgrade_base_dir, dirname, `${name}.yaml`);
-      const content = await this.read_file(file_path);
-      if (content) {
-        result.push({
-          file_path,
-          file_type: name,
-          content,
-        });
+  private getFileType(fileName: string): DeployType | undefined {
+    for (const strategy of fileTypeStrategies) {
+      if (strategy.pattern.test(fileName)) {
+        return strategy.type;
       }
-    }));
-    return result;
+    }
+    return undefined;
+  }
+
+  private async findFile(
+    regex: RegExp,
+    folderPath: string,
+  ): Promise<FileOptions | undefined> {
+    for await (const entry of walk(folderPath, { includeFiles: true })) {
+      if (entry.isFile && regex.test(entry.name)) {
+        const content = await Deno.readTextFile(entry.path);
+        const file_type = this.getFileType(entry.name);
+        if (!file_type) {
+          console.error(
+            `File ${entry.name} found image, but name is not valid`,
+          );
+          continue;
+        }
+        return {
+          content,
+          file_path: entry.path,
+          file_type,
+        };
+      }
+    }
   }
 
   /**
@@ -91,121 +116,104 @@ export class AppService {
    */
   private async get_yaml_file_path(upgrade: UpgradeDto): Promise<FileOptions> {
     const { upgrade_base_dir } = globals;
-    const list = await fs.readdir(path.join(upgrade_base_dir));
+    // dk.uino.cn/project/repository:1.0.0
     const reg = new RegExp(
-      // eslint-disable-next-line no-useless-escape
       `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:([\\w\-\.]+)`,
       "gm",
     );
-    for (let i = 0; i < list.length; i++) {
-      const dir = list[i];
-      const stat = await fs.stat(path.join(upgrade_base_dir, dir));
-      if (!stat.isDirectory()) {
-        continue;
-      }
-      const result = await this.get_yaml_content(
-        upgrade_base_dir,
-        dir,
-      );
-      if (result.length === 0) {
-        continue;
-      }
-
-      const file = result.find(({ content }) => content.match(reg)); // 如果这里不用match，而是用test，则下面matchAll会失败
-      if (!file) {
-        continue;
-      }
-      const { content, file_path, file_type } = file;
-      let version: string | undefined;
-      const matched = content.matchAll(reg);
-      for (const arr of matched) {
-        version = arr[1];
-        break;
-      }
-      if (!version) {
-        this.logger.warn("not find version");
-        continue;
-      }
-      const res2 = version.match(/(\d+)\.(\d+)\.(\d+)/);
-      if (
-        upgrade.strict_version &&
-        res2 &&
-        new RegExp(
-          `\\s+${upgrade.hostname.replace(/\./gm, "\\.")}\\s+`,
-          "gm",
-        ).test(content)
+    const result = await this.findFile(reg, upgrade_base_dir);
+    if (!result) {
+      throw new BadRequestException("not find yaml");
+    }
+    const { content, file_path, file_type } = result;
+    let version: string | undefined;
+    const matched = content.matchAll(reg);
+    for (const arr of matched) {
+      version = arr[1];
+      break;
+    }
+    if (!version) { // 这里一定会取到的
+      this.logger.warn("not find version");
+      throw new BadRequestException("not find version");
+    }
+    const res2 = version.match(/(\d+)\.(\d+)\.(\d+)/);
+    if (
+      upgrade.strict_version &&
+      res2 &&
+      new RegExp(
+        `\\s+${upgrade.hostname.replace(/\./gm, "\\.")}\\s+`,
+        "gm",
+      ).test(content)
+    ) {
+      const ug_version = upgrade.version.split(".").map((v) => Number(v));
+      // 匹配了版本规则的进行校验
+      const version_arr = (res2[0].split(":").pop() as string)
+        .split(".")
+        .map((v) => Number(v));
+      if (ug_version.join(".") === version_arr.join(".")) {
+        throw new BadRequestException(
+          "Target version same with currently running version",
+        );
+      } else if (
+        upgrade.strict_version === "" ||
+        (upgrade.strict_version === "patch" &&
+          ug_version[0] === version_arr[0] &&
+          ug_version[1] === version_arr[1] &&
+          ug_version[2] > version_arr[2]) ||
+        (upgrade.strict_version === "minor" &&
+          ug_version[0] === version_arr[0] &&
+          (ug_version[1] > version_arr[1] ||
+            (ug_version[1] === version_arr[1] &&
+              ug_version[2] > version_arr[2]))) ||
+        (upgrade.strict_version === "major" &&
+          (ug_version[0] > version_arr[0] ||
+            (ug_version[0] === version_arr[0] &&
+              ug_version[1] > version_arr[1]) ||
+            (ug_version[0] === version_arr[0] &&
+              ug_version[1] === version_arr[1] &&
+              ug_version[2] > version_arr[2])))
       ) {
-        const ug_version = upgrade.version.split(".").map((v) => Number(v));
-        // 匹配了版本规则的进行校验
-        const version_arr = (res2[0].split(":").pop() as string)
-          .split(".")
-          .map((v) => Number(v));
-        if (ug_version.join(".") === version_arr.join(".")) {
-          throw new BadRequestException(
-            "Target version same with currently running version",
-          );
-        } else if (
-          upgrade.strict_version === "" ||
-          (upgrade.strict_version === "patch" &&
-            ug_version[0] === version_arr[0] &&
-            ug_version[1] === version_arr[1] &&
-            ug_version[2] > version_arr[2]) ||
-          (upgrade.strict_version === "minor" &&
-            ug_version[0] === version_arr[0] &&
-            (ug_version[1] > version_arr[1] ||
-              (ug_version[1] === version_arr[1] &&
-                ug_version[2] > version_arr[2]))) ||
-          (upgrade.strict_version === "major" &&
-            (ug_version[0] > version_arr[0] ||
-              (ug_version[0] === version_arr[0] &&
-                ug_version[1] > version_arr[1]) ||
-              (ug_version[0] === version_arr[0] &&
-                ug_version[1] === version_arr[1] &&
-                ug_version[2] > version_arr[2])))
-        ) {
-          await fs.writeFile(
-            file_path,
-            content.replace(
-              reg,
-              `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
-            ),
-            "utf8",
-          );
-          return {
-            file_type,
-            file_path,
-            content,
-            unchanged: upgrade.version === version,
-          };
-        } else {
-          throw new BadRequestException(
-            `Strict version skip, from ${version_arr.join(
-              ".",
-            )
-            } to ${ug_version.join(".")}`,
-          );
-        }
-      } else {
-        if (upgrade.version !== version) {
-          await fs.writeFile(
-            file_path,
-            content.replace(
-              reg,
-              `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
-            ),
-            "utf8",
-          );
-        }
+        await fs.writeFile(
+          file_path,
+          content.replace(
+            reg,
+            `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
+          ),
+          "utf8",
+        );
         return {
           file_type,
           file_path,
           content,
           unchanged: upgrade.version === version,
         };
+      } else {
+        throw new BadRequestException(
+          `Strict version skip, from ${
+            version_arr.join(
+              ".",
+            )
+          } to ${ug_version.join(".")}`,
+        );
       }
+    } else {
+      if (upgrade.version !== version) {
+        await fs.writeFile(
+          file_path,
+          content.replace(
+            reg,
+            `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
+          ),
+          "utf8",
+        );
+      }
+      return {
+        file_type,
+        file_path,
+        content,
+        unchanged: upgrade.version === version,
+      };
     }
-
-    throw new BadRequestException("not find yaml");
   }
 
   get kubectlBin() {
@@ -440,8 +448,9 @@ export class AppService {
     //打印近5s的非运行的pods日志
     //admin@ip-10-120-1-167:~$ kubectl logs --tail=-1 --since=5s test1-c7d77f47-m7r7l -n test
     //Error from server (BadRequest): container "test1" in pod "test1-c7d77f47-m7r7l" is waiting to start: image can't be pulled
-    const command = `${this.kubectlBin} logs --tail=-1 --since=${time / 1000
-      }s ${podName} -n ${namespace}`;
+    const command = `${this.kubectlBin} logs --tail=-1 --since=${
+      time / 1000
+    }s ${podName} -n ${namespace}`;
     return this.exec(command);
   }
   /**
