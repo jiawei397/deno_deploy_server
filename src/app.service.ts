@@ -92,22 +92,28 @@ export class AppService {
     regex: RegExp,
     folderPath: string,
   ): Promise<FileOptions | undefined> {
-    for await (const entry of walk(folderPath, { includeFiles: true })) {
-      if (entry.isFile && regex.test(entry.name)) {
-        const content = await Deno.readTextFile(entry.path);
-        const file_type = this.getFileType(entry.name);
-        if (!file_type) {
-          console.error(
-            `File ${entry.name} found image, but name is not valid`,
-          );
-          continue;
-        }
-        return {
-          content,
-          file_path: entry.path,
-          file_type,
-        };
+    for await (
+      const entry of walk(folderPath, {
+        includeFiles: true,
+        includeDirs: false,
+      })
+    ) {
+      const content = await Deno.readTextFile(entry.path);
+      if (!regex.test(content)) {
+        continue;
       }
+      const file_type = this.getFileType(entry.name);
+      if (!file_type) {
+        console.error(
+          `File ${entry.name} found image, but name is not valid`,
+        );
+        continue;
+      }
+      return {
+        content,
+        file_path: entry.path,
+        file_type,
+      };
     }
   }
 
@@ -118,20 +124,15 @@ export class AppService {
     const { upgrade_base_dir } = globals;
     // dk.uino.cn/project/repository:1.0.0
     const reg = new RegExp(
-      `dk\.uino\.cn\/${upgrade.project}\/${upgrade.repository}:([\\w\-\.]+)`,
-      "gm",
-    );
+      `dk\\.uino\\.cn\\/${upgrade.project}\\/${upgrade.repository}:([\\w\\-\\.]+)`,
+    ); // "gm",
     const result = await this.findFile(reg, upgrade_base_dir);
     if (!result) {
       throw new BadRequestException("not find yaml");
     }
     const { content, file_path, file_type } = result;
-    let version: string | undefined;
-    const matched = content.matchAll(reg);
-    for (const arr of matched) {
-      version = arr[1];
-      break;
-    }
+    const matched = reg.exec(content);
+    const version = matched && matched[1];
     if (!version) { // 这里一定会取到的
       this.logger.warn("not find version");
       throw new BadRequestException("not find version");
