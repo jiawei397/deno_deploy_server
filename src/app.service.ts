@@ -359,7 +359,7 @@ export class AppService {
         res.write(msg);
         return false;
       } else {
-        this.logger.info(`find namespace in namespace.yaml: [${namespace}]`);
+        this.logger.info(`Find namespace in namespace.yaml: [${namespace}]`);
       }
     }
 
@@ -372,8 +372,7 @@ export class AppService {
     );
     // if (params.is_local) { // 现在也允许正式环境进行重启
     if (fileOptions.unchanged) { // 只有镜像未改变时需要restart，否则上面的apply已经可以了
-      const msg =
-        `${namespace} ${appName} version unchanged, will restart server.`;
+      const msg = `Version unchanged, will restart server.`;
       res.write(msg);
       this.logger.warn(msg);
       await this.exec(
@@ -396,7 +395,7 @@ export class AppService {
     res.write(SEPARATOR_LINE + "\n");
     this.logger.info(SEPARATOR_LINE);
     const msg =
-      `pod ${namespace} ${appName} failed to start, the error logs will be shown: `;
+      `Pod ${namespace} ${appName} failed to start, the error logs will be shown: `;
     this.logger.warn(msg);
     res.write(msg + "\n");
     const podName = await this.findErrorPod(namespace, appName);
@@ -404,7 +403,7 @@ export class AppService {
     res.write(errorLogs + "\n");
     res.write(SEPARATOR_LINE + "\n");
     this.logger.info(SEPARATOR_LINE);
-    this.logger.warn(`pod ${namespace} ${appName} will try to rollout`);
+    this.logger.warn(`Pod ${namespace} ${appName} will try to rollout`);
     await this.rollout(namespace, appName, res);
     return false;
   }
