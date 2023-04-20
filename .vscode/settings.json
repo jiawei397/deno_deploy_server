@@ -3,8 +3,9 @@
   "deno.suggest.imports.hosts": {
     "https://deno.land": true
   },
-  "deno.importMap": "import_map.json",
+  "deno.importMap": "import_map_proxy.json",
   "deno.config": "./deno.jsonc",
   "deno.lint": true,
-  "deno.suggest.autoImports": true
+  "deno.suggest.autoImports": true,
+  "deno.unstable": false
 }

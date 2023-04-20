@@ -1,7 +1,7 @@
 import { Injectable, type ReadableStreamResult } from "oak_nest";
-import { UpgradeDto } from "./app.dto.ts";
+import { StrictVersion, UpgradeDto } from "./app.dto.ts";
 import globals from "./globals.ts";
-import { exec } from "std/node/child_process.ts";
+import { exec } from "node:child_process";
 import { BadRequestException } from "oak_exception";
 import { Logger } from "./tools/log.ts";
 import { isVersionUpgrade, readYaml } from "./tools/utils.ts";
@@ -9,7 +9,8 @@ import { walk } from "std/fs/mod.ts";
 
 const ignore_re = /(redis|mongo|postgres|mysql|mariadb|elasticsearch)/;
 const SEPARATOR_LINE = `------------------------------------------------`;
-enum DeployType {
+
+export enum DeployType {
   Deployment = "deployment",
   Config = "config",
   Service = "service",
@@ -32,7 +33,7 @@ const fileTypeStrategies: FileTypeStrategy[] = [
   { pattern: /namespace\.yaml$/, type: DeployType.Namespace },
 ];
 
-interface FileOptions {
+export interface FileOptions {
   file_path: string;
   file_type: DeployType;
   content: string;
@@ -48,7 +49,7 @@ export class AppService {
   async upgrade(params: UpgradeDto, res: ReadableStreamResult) {
     try {
       const fileOptions = await this.get_yaml_file_path(params);
-      this.checkVersion(params, fileOptions);
+      this.checkVersion(fileOptions, params.strict_version, params.hostname);
       if (!fileOptions.unchanged) {
         await this.writeNewVersionToFile(
           params,
@@ -160,8 +161,11 @@ export class AppService {
     };
   }
 
-  private checkVersion(upgrade: UpgradeDto, params: FileOptions) {
-    const { strict_version } = upgrade;
+  checkVersion(
+    params: FileOptions,
+    strict_version: StrictVersion,
+    hostname: string,
+  ) {
     if (!strict_version) {
       return;
     }
@@ -172,14 +176,14 @@ export class AppService {
         "Target version same with currently running version",
       );
     }
-    if (!/(\d+)\.(\d+)\.(\d+)/.test(upgradeVersion)) {
-      throw new BadRequestException("invalid version");
+    if (!/^(\d+)\.(\d+)\.(\d+)$/.test(upgradeVersion)) {
+      throw new BadRequestException("Invalid version");
     }
     if (
-      !new RegExp(`\\s+${upgrade.hostname.replace(/\./gm, "\\.")}\\s+`, "gm")
+      !new RegExp(`\\s+${hostname.replace(/\./gm, "\\.")}\\s+`, "gm")
         .test(content)
     ) {
-      throw new BadRequestException("hostname not match");
+      throw new BadRequestException("Hostname not match");
     }
     const checked = isVersionUpgrade(
       currentVersion,
@@ -198,6 +202,11 @@ export class AppService {
     content: string,
     file_path: string,
   ) {
+    const newContent = this.getNewContentByVersion(upgrade, content);
+    await Deno.writeTextFile(file_path, newContent);
+  }
+
+  getNewContentByVersion(upgrade: UpgradeDto, content: string) {
     const reg = new RegExp(
       `dk\\.uino\\.cn\\/${upgrade.project}\\/${upgrade.repository}:([\\w\\-\\.]+)`,
     );
@@ -205,7 +214,7 @@ export class AppService {
       reg,
       `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
     );
-    await Deno.writeTextFile(file_path, newContent);
+    return newContent;
   }
 
   get kubectlBin() {

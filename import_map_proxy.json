@@ -1,7 +1,7 @@
 {
   "imports": {
     "@/": "./src/",
-    "std/": "https://deno-mirror.uino.cn/https/deno.land/std@0.167.0/",
+    "std/": "https://deno-mirror.uino.cn/https/deno.land/std@0.184.0/",
     "yaml_loader": "https://deno-mirror.uino.cn/https/deno.land/x/yaml_loader@v0.1.0/mod.ts",
     "deno_class_validator": "https://deno-mirror.uino.cn/https/deno.land/x/deno_class_validator@v1.0.0/mod.ts",
     "date_file_log": "https://deno-mirror.uino.cn/https/deno.land/x/date_file_log@v0.2.6/mod.ts",
