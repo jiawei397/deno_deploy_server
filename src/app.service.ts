@@ -309,6 +309,18 @@ export class AppService {
     return appName;
   }
 
+  get_namespace_by_output(apply_output: string) {
+    // namespace/spacex-cert unchanged
+    // configmap/config unchanged
+    // deployment.apps/server configured
+    // service/server-svc unchanged
+    // deployment.apps/web unchanged
+    // service/web-svc unchanged
+    // ingress.networking.k8s.io/web-ing unchanged
+    const namespace_match = apply_output.match(/namespace\/([\w-]+)/m);
+    return namespace_match?.[1] || null;
+  }
+
   private async deploy_with_yaml(
     fileOptions: FileOptions,
     params: UpgradeDto,
@@ -334,9 +346,10 @@ export class AppService {
       return true;
     }
 
-    let namespace: string | null;
-    const namespace_match = apply_output.match(/namespace\/([\w-]+)/m);
-    if (!namespace_match || namespace_match.length < 2) {
+    let namespace: string | null = this.get_namespace_by_output(
+      apply_output,
+    );
+    if (!namespace) {
       const arr = file_path.split("/");
       arr.pop();
       namespace = await this.get_namespace(arr.join("/"));
@@ -346,10 +359,8 @@ export class AppService {
         res.write(msg);
         return false;
       } else {
-        this.logger.info(`find namespace [${namespace}] from namespace.yaml`);
+        this.logger.info(`find namespace in namespace.yaml: [${namespace}]`);
       }
-    } else {
-      namespace = namespace_match[1];
     }
 
     // 查找appName
