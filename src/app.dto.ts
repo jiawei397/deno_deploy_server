@@ -1,10 +1,18 @@
 import {
   IsBoolean,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
   MaxLength,
 } from "deno_class_validator";
+
+export enum StrictVersion {
+  Major = "major",
+  Minor = "minor",
+  Patch = "patch",
+  None = "",
+}
 
 export class UpgradeDto {
   @IsString()
@@ -23,9 +31,8 @@ export class UpgradeDto {
   @MaxLength(100)
   hostname: string;
 
-  @IsString()
-  @MaxLength(100)
-  strict_version: string;
+  @IsEnum(StrictVersion)
+  strict_version: StrictVersion;
 
   @IsBoolean()
   @IsOptional()

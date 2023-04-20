@@ -1,11 +1,10 @@
 import { Injectable, type ReadableStreamResult } from "oak_nest";
 import { UpgradeDto } from "./app.dto.ts";
 import globals from "./globals.ts";
-import * as fs from "std/node/fs/promises.ts";
 import { exec } from "std/node/child_process.ts";
 import { BadRequestException } from "oak_exception";
 import { Logger } from "./tools/log.ts";
-import { readYaml } from "./tools/utils.ts";
+import { isVersionUpgrade, readYaml } from "./tools/utils.ts";
 import { walk } from "std/fs/mod.ts";
 
 const ignore_re = /(redis|mongo|postgres|mysql|mariadb|elasticsearch)/;
@@ -37,7 +36,9 @@ interface FileOptions {
   file_path: string;
   file_type: DeployType;
   content: string;
-  unchanged?: boolean;
+  currentVersion: string;
+  upgradeVersion: string;
+  unchanged: boolean;
 }
 
 @Injectable()
@@ -47,6 +48,14 @@ export class AppService {
   async upgrade(params: UpgradeDto, res: ReadableStreamResult) {
     try {
       const fileOptions = await this.get_yaml_file_path(params);
+      this.checkVersion(params, fileOptions);
+      if (!fileOptions.unchanged) {
+        await this.writeNewVersionToFile(
+          params,
+          fileOptions.content,
+          fileOptions.file_path,
+        );
+      }
       this.logger.info(`Found yaml in ${fileOptions.file_path}`);
       const success = await this.deploy_with_yaml(
         fileOptions,
@@ -91,7 +100,13 @@ export class AppService {
   private async findFile(
     regex: RegExp,
     folderPath: string,
-  ): Promise<FileOptions | undefined> {
+  ): Promise<
+    {
+      content: string;
+      file_path: string;
+      file_type: DeployType;
+    } | undefined
+  > {
     for await (
       const entry of walk(folderPath, {
         includeFiles: true,
@@ -128,93 +143,69 @@ export class AppService {
     ); // "gm",
     const result = await this.findFile(reg, upgrade_base_dir);
     if (!result) {
-      throw new BadRequestException("not find yaml");
+      throw new BadRequestException(
+        "Not find the deploy yaml file, please contact IT staff.",
+      );
     }
     const { content, file_path, file_type } = result;
-    const matched = reg.exec(content);
-    const version = matched && matched[1];
-    if (!version) { // 这里一定会取到的
-      this.logger.warn("not find version");
-      throw new BadRequestException("not find version");
+    const matched = reg.exec(content)!;
+    const version = matched[1]!;
+    return {
+      file_type,
+      file_path,
+      content,
+      currentVersion: version,
+      upgradeVersion: upgrade.version,
+      unchanged: upgrade.version === version,
+    };
+  }
+
+  private checkVersion(upgrade: UpgradeDto, params: FileOptions) {
+    const { strict_version } = upgrade;
+    if (!strict_version) {
+      return;
     }
-    const res2 = version.match(/(\d+)\.(\d+)\.(\d+)/);
+    const { currentVersion, upgradeVersion, content, unchanged } = params;
+    // 检查版本规则，要求0.0.1到1.0.0这种严格比较
+    if (unchanged) {
+      throw new BadRequestException(
+        "Target version same with currently running version",
+      );
+    }
+    if (!/(\d+)\.(\d+)\.(\d+)/.test(upgradeVersion)) {
+      throw new BadRequestException("invalid version");
+    }
     if (
-      upgrade.strict_version &&
-      res2 &&
-      new RegExp(
-        `\\s+${upgrade.hostname.replace(/\./gm, "\\.")}\\s+`,
-        "gm",
-      ).test(content)
+      !new RegExp(`\\s+${upgrade.hostname.replace(/\./gm, "\\.")}\\s+`, "gm")
+        .test(content)
     ) {
-      const ug_version = upgrade.version.split(".").map((v) => Number(v));
-      // 匹配了版本规则的进行校验
-      const version_arr = (res2[0].split(":").pop() as string)
-        .split(".")
-        .map((v) => Number(v));
-      if (ug_version.join(".") === version_arr.join(".")) {
-        throw new BadRequestException(
-          "Target version same with currently running version",
-        );
-      } else if (
-        upgrade.strict_version === "" ||
-        (upgrade.strict_version === "patch" &&
-          ug_version[0] === version_arr[0] &&
-          ug_version[1] === version_arr[1] &&
-          ug_version[2] > version_arr[2]) ||
-        (upgrade.strict_version === "minor" &&
-          ug_version[0] === version_arr[0] &&
-          (ug_version[1] > version_arr[1] ||
-            (ug_version[1] === version_arr[1] &&
-              ug_version[2] > version_arr[2]))) ||
-        (upgrade.strict_version === "major" &&
-          (ug_version[0] > version_arr[0] ||
-            (ug_version[0] === version_arr[0] &&
-              ug_version[1] > version_arr[1]) ||
-            (ug_version[0] === version_arr[0] &&
-              ug_version[1] === version_arr[1] &&
-              ug_version[2] > version_arr[2])))
-      ) {
-        await fs.writeFile(
-          file_path,
-          content.replace(
-            reg,
-            `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
-          ),
-          "utf8",
-        );
-        return {
-          file_type,
-          file_path,
-          content,
-          unchanged: upgrade.version === version,
-        };
-      } else {
-        throw new BadRequestException(
-          `Strict version skip, from ${
-            version_arr.join(
-              ".",
-            )
-          } to ${ug_version.join(".")}`,
-        );
-      }
-    } else {
-      if (upgrade.version !== version) {
-        await fs.writeFile(
-          file_path,
-          content.replace(
-            reg,
-            `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
-          ),
-          "utf8",
-        );
-      }
-      return {
-        file_type,
-        file_path,
-        content,
-        unchanged: upgrade.version === version,
-      };
+      throw new BadRequestException("hostname not match");
     }
+    const checked = isVersionUpgrade(
+      currentVersion,
+      upgradeVersion,
+      strict_version,
+    );
+    if (!checked) {
+      throw new BadRequestException(
+        `Strict version skip, from ${currentVersion} to ${upgradeVersion}`,
+      );
+    }
+  }
+
+  private async writeNewVersionToFile(
+    upgrade: UpgradeDto,
+    content: string,
+    file_path: string,
+  ) {
+    const reg = new RegExp(
+      `dk\\.uino\\.cn\\/${upgrade.project}\\/${upgrade.repository}:([\\w\\-\\.]+)`,
+    );
+    const newContent = content.replace(
+      reg,
+      `dk.uino.cn/${upgrade.project}/${upgrade.repository}:${upgrade.version}`,
+    );
+    await Deno.writeTextFile(file_path, newContent);
   }
 
   get kubectlBin() {

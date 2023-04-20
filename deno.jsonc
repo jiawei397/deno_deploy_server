@@ -1,6 +1,7 @@
 {
   "name": "deno_deploy_server",
   "version": "1.2.0",
+  "lock": false,
   "compilerOptions": {
     "removeComments": true,
     "emitDecoratorMetadata": true,
