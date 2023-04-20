@@ -370,13 +370,17 @@ export class AppService {
       namespace,
       apply_output,
     );
-    if (params.is_local) {
-      if (fileOptions.unchanged) { // 只有镜像未改变时需要restart，否则上面的apply已经可以了
-        await this.exec(
-          `${this.kubectlBin} rollout restart -n ${namespace} ${appName}`,
-        );
-      }
+    // if (params.is_local) { // 现在也允许正式环境进行重启
+    if (fileOptions.unchanged) { // 只有镜像未改变时需要restart，否则上面的apply已经可以了
+      const msg =
+        `${namespace} ${appName} version unchanged, will restart server.`;
+      res.write(msg);
+      this.logger.warn(msg);
+      await this.exec(
+        `${this.kubectlBin} rollout restart -n ${namespace} ${appName}`,
+      );
     }
+    // }
 
     // 等待2分钟
     const timeoutMinutes = params.timeout || 2;
