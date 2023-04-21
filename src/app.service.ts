@@ -238,72 +238,35 @@ export class AppService {
       return dockerUrl.trim() ===
         `dk.uino.cn/${params.project}/${params.repository}:${params.version}`;
     };
-    if (params.is_local) { // 测试环境，与生产的逻辑不同的一点在于，如果镜像没有改变，需要restart，所以，对于生产环境而言，只需要判断有没有configured，没有就报错了，有的话再确认下哪个是正确的appName
-      const reg = /((deployment\.apps\/|cronjob\.batch\/)([\w-]+))\s+/;
-      const appNames: string[] = [];
-      apply_output.split("\n").forEach((line: string) => {
-        const matched = line.match(reg);
-        // [
-        //   "deployment.apps/server configured",
-        //   "deployment.apps/server",
-        //   "deployment.apps/",
-        //   "server",
-        // ]
-        if (matched && !ignore_re.test(matched[2])) {
-          appNames.push(matched[1]);
-        }
-      });
-      if (appNames.length === 0) {
-        const msg =
-          `${fileOptions.file_path} applied result not matched deployment.apps or cronjob.batch`;
-        throw new BadRequestException(msg);
-      } else {
-        for (let i = 0; i < appNames.length; i++) {
-          const find = await findContainerByAppName(appNames[i]);
-          if (find) {
-            appName = appNames[i];
-            break;
-          }
-        }
-        if (!appName) {
-          const msg = `Not found Image by describe.`;
-          throw new BadRequestException(msg);
+    const reg = /((deployment\.apps\/|cronjob\.batch\/)([\w-]+))\s+/;
+    const appNames: string[] = [];
+    apply_output.split("\n").forEach((line: string) => {
+      const matched = line.match(reg);
+      // [
+      //   "deployment.apps/server configured",
+      //   "deployment.apps/server",
+      //   "deployment.apps/",
+      //   "server",
+      // ]
+      if (matched && !ignore_re.test(matched[2])) {
+        appNames.push(matched[1]);
+      }
+    });
+    if (appNames.length === 0) {
+      const msg =
+        `${fileOptions.file_path} applied result not matched deployment.apps or cronjob.batch`;
+      throw new BadRequestException(msg);
+    } else {
+      for (let i = 0; i < appNames.length; i++) {
+        const find = await findContainerByAppName(appNames[i]);
+        if (find) {
+          appName = appNames[i];
+          break;
         }
       }
-    } else {
-      const reg =
-        /((deployment\.apps\/|cronjob\.batch\/)([\w-]+))\s+(configured|created)/;
-      const appNames: string[] = [];
-      apply_output.split("\n").forEach((line: string) => {
-        const matched = line.match(reg);
-        // [
-        //   "deployment.apps/server configured",
-        //   "deployment.apps/server",
-        //   "deployment.apps/",
-        //   "server",
-        //   "configured" 或者 "created"
-        // ]
-        if (matched && !ignore_re.test(matched[2])) {
-          appNames.push(matched[1]);
-        }
-      });
-      if (appNames.length === 0) {
-        const msg =
-          `${fileOptions.file_path} applied result not matched deployment.apps.configured or cronjob.batch.configured`;
+      if (!appName) {
+        const msg = `Not found Image by describe.`;
         throw new BadRequestException(msg);
-      } else {
-        for (let i = 0; i < appNames.length; i++) {
-          const find = await findContainerByAppName(appNames[i]);
-          if (find) {
-            appName = appNames[i];
-            break;
-          }
-        }
-        if (!appName) { // 正常情况不可能找不到
-          const msg =
-            `Not found Image by describe, there may be something wrong.`;
-          throw new BadRequestException(msg);
-        }
       }
     }
     return appName;
