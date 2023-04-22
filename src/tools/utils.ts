@@ -19,8 +19,8 @@ export function isVersionUpgrade(
   if (oldVersion === newVersion) {
     return false;
   }
-  const oldVerArr = oldVersion.split(".");
-  const newVerArr = newVersion.split(".");
+  const oldVerArr = oldVersion.split(".").map((v) => parseInt(v));
+  const newVerArr = newVersion.split(".").map((v) => parseInt(v));
 
   switch (upgradeType) {
     case "patch":

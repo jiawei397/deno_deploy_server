@@ -21,9 +21,15 @@ Deno.test("check isVersionUpgrade", async (t) => {
     () => {
       const result1 = isVersionUpgrade("0.0.2", "0.0.3", StrictVersion.Patch);
       const result2 = isVersionUpgrade("0.0.2", "0.0.4", StrictVersion.Patch);
+      const result3 = isVersionUpgrade(
+        "1.11.9",
+        "1.11.10",
+        StrictVersion.Patch,
+      );
 
       assertEquals(result1, true);
       assertEquals(result2, true);
+      assertEquals(result3, true);
     },
   );
 
@@ -33,10 +39,16 @@ Deno.test("check isVersionUpgrade", async (t) => {
       const result1 = isVersionUpgrade("0.0.2", "0.0.1", StrictVersion.Patch);
       const result2 = isVersionUpgrade("0.0.2", "0.1.0", StrictVersion.Patch);
       const result3 = isVersionUpgrade("0.0.2", "1.0.0", StrictVersion.Patch);
+      const result4 = isVersionUpgrade(
+        "1.11.10",
+        "1.11.9",
+        StrictVersion.Patch,
+      );
 
       assertEquals(result1, false);
       assertEquals(result2, false);
       assertEquals(result3, false);
+      assertEquals(result4, false);
     },
   );
 
@@ -48,12 +60,24 @@ Deno.test("check isVersionUpgrade", async (t) => {
       const result3 = isVersionUpgrade("0.0.2", "0.1.0", StrictVersion.Minor);
       const result4 = isVersionUpgrade("0.0.2", "0.1.1", StrictVersion.Minor);
       const result5 = isVersionUpgrade("0.0.2", "0.2.0", StrictVersion.Minor);
+      const result6 = isVersionUpgrade(
+        "1.11.9",
+        "1.11.10",
+        StrictVersion.Minor,
+      );
+      const result7 = isVersionUpgrade(
+        "1.11.9",
+        "1.12.0",
+        StrictVersion.Minor,
+      );
 
       assertEquals(result1, true);
       assertEquals(result2, true);
       assertEquals(result3, true);
       assertEquals(result4, true);
       assertEquals(result5, true);
+      assertEquals(result6, true);
+      assertEquals(result7, true);
     },
   );
 
@@ -78,6 +102,21 @@ Deno.test("check isVersionUpgrade", async (t) => {
       const result5 = isVersionUpgrade("0.0.2", "0.2.0", StrictVersion.Major);
       const result6 = isVersionUpgrade("0.0.2", "1.0.0", StrictVersion.Major);
       const result7 = isVersionUpgrade("0.0.2", "2.0.0", StrictVersion.Major);
+      const result8 = isVersionUpgrade(
+        "1.11.9",
+        "1.11.10",
+        StrictVersion.Major,
+      );
+      const result9 = isVersionUpgrade(
+        "1.11.9",
+        "1.12.0",
+        StrictVersion.Major,
+      );
+      const result10 = isVersionUpgrade(
+        "1.11.9",
+        "2.0.0",
+        StrictVersion.Major,
+      );
 
       assertEquals(result1, true);
       assertEquals(result2, true);
@@ -86,6 +125,9 @@ Deno.test("check isVersionUpgrade", async (t) => {
       assertEquals(result5, true);
       assertEquals(result6, true);
       assertEquals(result7, true);
+      assertEquals(result8, true);
+      assertEquals(result9, true);
+      assertEquals(result10, true);
     },
   );
 
@@ -93,8 +135,26 @@ Deno.test("check isVersionUpgrade", async (t) => {
     "should return false when new version is not a valid major version",
     () => {
       const result1 = isVersionUpgrade("0.0.2", "0.0.1", StrictVersion.Major);
+      const result2 = isVersionUpgrade(
+        "1.11.10",
+        "1.11.9",
+        StrictVersion.Major,
+      );
+      const result3 = isVersionUpgrade(
+        "1.11.10",
+        "0.11.10",
+        StrictVersion.Major,
+      );
+      const result4 = isVersionUpgrade(
+        "1.11.10",
+        "1.10.10",
+        StrictVersion.Major,
+      );
 
       assertEquals(result1, false);
+      assertEquals(result2, false);
+      assertEquals(result3, false);
+      assertEquals(result4, false);
     },
   );
 
