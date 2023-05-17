@@ -350,7 +350,7 @@ export class AppService {
     res.write(
       `Applied deployment ok, and will check the pods status within ${timeoutMinutes} minutes.\n`,
     );
-    const bool = await this.checkIsSuccess(namespace, appName, time);
+    const bool = await this.checkIsSuccess(namespace, appName, time, res);
     if (bool) {
       this.logger.info(`pod ${namespace} ${appName} successfully`);
       return true;
@@ -375,6 +375,7 @@ export class AppService {
     namespace: string,
     appName: string,
     time: number,
+    res: ReadableStreamResult,
   ) {
     if (appName.startsWith("cronjob.batch/")) {
       // cronjob.batch/clear-env
@@ -389,6 +390,7 @@ export class AppService {
         this.kubectlBin,
         `rollout status -n ${namespace} ${appName}`.split(" "),
         time,
+        res,
       );
       return output.includes("successfully");
     } catch {
@@ -497,7 +499,12 @@ export class AppService {
     });
   }
 
-  private spawn(command: string, options: string[], timeout = 60_000) {
+  private spawn(
+    command: string,
+    options: string[],
+    timeout: number,
+    res: ReadableStreamResult,
+  ) {
     return new Promise<string>((resolve, reject) => {
       this.logger.info(SEPARATOR_LINE);
       this.logger.info(command + " " + options.join(" "));
@@ -509,10 +516,12 @@ export class AppService {
       childProcess.stdout.on("data", (data: string) => {
         this.logger.info(data.toString().trim());
         stdout.push(data);
+        res.write(data);
       });
 
       childProcess.stderr.on("data", (data: string) => {
         this.logger.warn(`stderr: ${data}`);
+        res.write(data);
       });
 
       childProcess.on("error", (error: Error) => {
