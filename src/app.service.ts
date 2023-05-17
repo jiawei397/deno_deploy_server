@@ -507,7 +507,7 @@ export class AppService {
       const stdout: string[] = [];
 
       childProcess.stdout.on("data", (data: string) => {
-        this.logger.info(data);
+        this.logger.info(data.toString().trim());
         stdout.push(data);
       });
 
@@ -522,9 +522,9 @@ export class AppService {
       childProcess.on("close", (code: number) => {
         this.logger.debug(`子进程退出码：${code}`);
         if (code == 0) {
-          resolve(stdout.join("\n"));
+          resolve(stdout.join(""));
         } else {
-          reject(stdout.join("\n"));
+          reject(stdout.join(""));
         }
       });
     });
