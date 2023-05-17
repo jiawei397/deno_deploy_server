@@ -514,9 +514,10 @@ export class AppService {
       const stdout: string[] = [];
 
       childProcess.stdout.on("data", (data: string) => {
-        this.logger.info(data.toString().trim());
         stdout.push(data);
-        res.write(data);
+        const info = data.toString().trim();
+        this.logger.info(info);
+        res.write(info);
       });
 
       childProcess.stderr.on("data", (data: string) => {
