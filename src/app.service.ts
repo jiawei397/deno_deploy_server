@@ -1,7 +1,7 @@
 import { Injectable, type ReadableStreamResult } from "oak_nest";
 import { StrictVersion, UpgradeDto } from "./app.dto.ts";
 import globals from "./globals.ts";
-import { exec } from "node:child_process";
+import { exec, spawn } from "node:child_process";
 import { BadRequestException } from "oak_exception";
 import { Logger } from "./tools/log.ts";
 import { isVersionUpgrade, readYaml } from "./tools/utils.ts";
@@ -385,8 +385,9 @@ export class AppService {
     // deployment "test1" successfully rolled out
     //这一步可能会卡住，一般情况下不会
     try {
-      const output = await this.exec(
-        `${this.kubectlBin} rollout status -n ${namespace} ${appName}`,
+      const output = await this.spawn(
+        this.kubectlBin,
+        `rollout status -n ${namespace} ${appName}`.split(" "),
         time,
       );
       return output.includes("successfully");
@@ -480,7 +481,7 @@ export class AppService {
         {
           timeout,
         },
-        (error, stdout, stderr) => {
+        (error: Error, stdout: unknown, stderr: string) => {
           if (error) {
             reject(error);
             return;
@@ -493,6 +494,39 @@ export class AppService {
           resolve(typeof stdout === "string" ? stdout : ""); // 都认为是成功了
         },
       );
+    });
+  }
+
+  private spawn(command: string, options: string[], timeout = 60_000) {
+    return new Promise<string>((resolve, reject) => {
+      this.logger.info(SEPARATOR_LINE);
+      this.logger.info(command + " " + options.join(" "));
+      const childProcess = spawn(command, options, {
+        timeout,
+      });
+      const stdout: string[] = [];
+
+      childProcess.stdout.on("data", (data: string) => {
+        this.logger.info(data);
+        stdout.push(data);
+      });
+
+      childProcess.stderr.on("data", (data: string) => {
+        this.logger.warn(`stderr: ${data}`);
+      });
+
+      childProcess.on("error", (error: Error) => {
+        reject(error);
+      });
+
+      childProcess.on("close", (code: number) => {
+        this.logger.debug(`子进程退出码：${code}`);
+        if (code == 0) {
+          resolve(stdout.join("\n"));
+        } else {
+          reject(stdout.join("\n"));
+        }
+      });
     });
   }
 }
