@@ -6,6 +6,7 @@ import { BadRequestException } from "oak_exception";
 import { Logger } from "./tools/log.ts";
 import { isVersionUpgrade, readYaml } from "./tools/utils.ts";
 import { walk } from "std/fs/mod.ts";
+import { delay } from "utils";
 
 const ignore_re = /(redis|mongo|postgres|mysql|mariadb|elasticsearch)/;
 const SEPARATOR_LINE = `------------------------------------------------`;
@@ -56,6 +57,7 @@ export class AppService {
           fileOptions.content,
           fileOptions.file_path,
         );
+        await delay(1000); // nas可能有延迟，会导致没有写完，下面就deploy的情况
       }
       this.logger.info(`Found yaml in ${fileOptions.file_path}`);
       const success = await this.deploy_with_yaml(
