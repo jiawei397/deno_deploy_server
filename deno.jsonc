@@ -1,6 +1,6 @@
 {
   "name": "deno_deploy_server",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "lock": false,
   "compilerOptions": {
     "removeComments": true,
