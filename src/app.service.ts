@@ -70,8 +70,12 @@ export class AppService {
       }
       this.logger.info(`Upgrade finished`);
     } catch (error) {
-      this.logger.error(error);
-      res.end(error + "");
+      this.logger.error(`Upgrade error, params is ${JSON.stringify(params)}, error: `, error);
+      try {
+        res.end(error + ""); // 当客户端连接中断时，会报错。不是很优雅，但底层处理错误信息也不合适。暂时这样吧
+      } catch (error2) {
+        this.logger.error(`res.end error: ${error2.stack}`);
+      }
     }
   }
 
