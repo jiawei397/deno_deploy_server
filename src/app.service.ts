@@ -72,7 +72,6 @@ export class AppService {
     } catch (error) {
       this.logger.error(error);
       res.end(error + "");
-      return "error: " + error;
     }
   }
 
@@ -511,6 +510,9 @@ export class AppService {
       const childProcess = spawn(command, options, {
         timeout,
       });
+      const st = setTimeout(() => { //TODO：自己处理超时的原因是Deno的spawn不支持timeout，已经提了issue
+        childProcess.kill("SIGTERM");
+      }, timeout);
       const stdout: string[] = [];
 
       childProcess.stdout.on("data", (data: string) => {
@@ -526,11 +528,16 @@ export class AppService {
       });
 
       childProcess.on("error", (error: Error) => {
+        clearTimeout(st);
         reject(error);
       });
 
-      childProcess.on("close", (code: number) => {
-        this.logger.debug(`子进程退出码：${code}`);
+      childProcess.on("close", (code: number, signal: string) => {
+        clearTimeout(st);
+        this.logger.debug(`子进程退出码：${code}, 信号：${signal}`);
+        if (signal === "SIGTERM") {
+          this.logger.warn(`子进程超时退出: ${timeout}ms`);
+        }
         if (code == 0) {
           resolve(stdout.join(""));
         } else {
