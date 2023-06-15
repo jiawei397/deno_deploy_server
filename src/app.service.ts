@@ -513,9 +513,22 @@ export class AppService {
       const st = setTimeout(() => { //TODO：自己处理超时的原因是Deno的spawn不支持timeout，已经提了issue
         childProcess.kill("SIGTERM");
       }, timeout);
+
+      let receivedData = false;
+      const it = setInterval(() => { // 每隔一分钟发一次消息，以防与客户端连接中断
+        if (receivedData) {
+          receivedData = false;
+          return;
+        }
+        const msg = `Please wait for a moment...\n`;
+        res.write(msg);
+        this.logger.warn(msg);
+      }, 60_000); 
+
       const stdout: string[] = [];
 
       childProcess.stdout.on("data", (data: string) => {
+        receivedData = true;
         stdout.push(data);
         const info = data.toString().trim();
         this.logger.info(info);
@@ -523,17 +536,20 @@ export class AppService {
       });
 
       childProcess.stderr.on("data", (data: string) => {
+        receivedData = true;
         this.logger.warn(`stderr: ${data}`);
         res.write(data);
       });
 
       childProcess.on("error", (error: Error) => {
         clearTimeout(st);
+        clearInterval(it);
         reject(error);
       });
 
       childProcess.on("close", (code: number, signal: string) => {
         clearTimeout(st);
+        clearInterval(it);
         this.logger.debug(`子进程退出码：${code}, 信号：${signal}`);
         if (signal === "SIGTERM") {
           this.logger.warn(`子进程超时退出: ${timeout}ms`);
