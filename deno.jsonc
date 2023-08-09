@@ -9,12 +9,11 @@
     "noImplicitThis": false
   },
   "tasks": {
-    "dev": "deno task map && deno task start:dev",
-    "start": "deno task map && deno run --allow-net --allow-env --allow-write --allow-read --allow-run  --unstable mod.ts",
+    "dev": "deno task start:dev",
+    "start": "deno run --allow-net --allow-env --allow-write --allow-read --allow-run  --unstable mod.ts",
     "start:dev": "deno run --allow-net --allow-env --allow-write --allow-read --allow-run  --unstable --watch mod.ts",
-    "map": "deno run --allow-read --allow-write https://deno-mirror.uino.cn/https/deno.land/x/deno_proxy@v0.0.3/cli/mod.ts --baseUrl https://deno-mirror.uino.cn --oldPath import_map.json --newPath import_map_proxy.json",
     "log": "conventional-changelog -p angular -i CHANGELOG.md -s -r 0",
     "pm2": "pm2 start --name deno_deploy_server mod.ts --interpreter='deno' --interpreter-args='run --allow-net --allow-env --allow-write --allow-read --allow-run  --unstable'"
   },
-  "importMap": "import_map_proxy.json"
+  "importMap": "import_map.json"
 }
