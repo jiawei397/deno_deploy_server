@@ -5,6 +5,7 @@
   "compilerOptions": {
     "removeComments": true,
     "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
     "strictPropertyInitialization": false,
     "noImplicitThis": false
   },
