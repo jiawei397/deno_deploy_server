@@ -240,8 +240,14 @@ export class AppService {
       const dockerUrl = await this.exec(
         `${this.kubectlBin} describe -n ${namespace} ${appName} |grep Image |  awk '{print $2}'`,
       );
-      return dockerUrl.trim() ===
-        `dk.uino.cn/${params.project}/${params.repository}:${params.version}`;
+      const images = dockerUrl.split("\n");
+      const target_image = `dk.uino.cn/${params.project}/${params.repository}:${params.version}`;
+      for (let i = 0; i < images.length; i++) {
+        if (images[i].trim() === target_image) {
+          return true;
+        }
+      }
+      return false;
     };
     const reg = /((deployment\.apps\/|cronjob\.batch\/)([\w-]+))\s+/;
     const appNames: string[] = [];
